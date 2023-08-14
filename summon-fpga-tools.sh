@@ -19,6 +19,8 @@
 # Stop if any command fails
 set -e
 
+export CMAKE_GENERATOR="Unix Makefiles"
+
 ##############################################################################
 # Default settings section
 # You probably want to customize those
@@ -49,7 +51,7 @@ YOSYS_EN=${YOSYS_EN:-1}
 YOSYS_GIT=${YOSYS_GIT:-master}
 YOSYS_CONFIG=${YOSYS_CONFIG:-}
 IVERILOG_EN=${IVERILOG_EN:-1}
-IVERILOG_GIT=${IVERILOG_GIT:-v10-branch}
+IVERILOG_GIT=${IVERILOG_GIT:-v12-branch}
 GHDL_EN=${GHDL_EN:-1}
 GHDL_GIT=${GHDL_GIT:-master}
 
@@ -259,10 +261,11 @@ function clone {
             rm -rf ${NAME}-${GIT_SHA}
         fi
         log "Cloning ${NAME}-${GIT_SHA} ..."
-        git clone --recursive ${GIT_URL} ${NAME}-${GIT_SHA}
+        echo git clone --depth=1 --shallow-submodules --recursive ${GIT_URL} ${NAME}-${GIT_SHA} --branch ${GIT_SHA}
+        git clone --depth=1 --shallow-submodules --recursive ${GIT_URL} ${NAME}-${GIT_SHA}
         cd ${NAME}-${GIT_SHA}
         log "Checking out the revision ${GIT_REF} with the SHA ${GIT_SHA} ..."
-        git checkout -b sft-branch ${GIT_SHA}
+        # git checkout -b sft-branch ${GIT_SHA}
 	if [ "x${POST_CLONE}" != "x" ]; then
 		log "Running post clone code for ${NAME}-${GIT_SHA} ..."
 		${POST_CLONE}
@@ -459,6 +462,8 @@ if { [ ${NEXTPNR_ICE40_EN} != 0 ] || [ ${NEXTPNR_ECP5_EN} != 0 ]; } && [ ! -e ${
         -DCMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH} \
         -DBUILD_GUI=${NEXTPNR_BUILD_GUI} \
         -DTRELLIS_INSTALL_PREFIX=${PREFIX} \
+        -DICESTORM_INSTALL_PREFIX=${PREFIX}/share/icebox \
+        -DICEBOX_DATADIR=${PREFIX}/share/icebox \
         -DICEBOX_ROOT=${PREFIX}/share/icebox ../${NEXTPNR}
     log "Building ${NEXTPNR}"
     make ${PARALLEL} ${MAKEFLAGS}
@@ -477,7 +482,11 @@ if [ ${YOSYS_EN} != 0 ] && [ ! -e ${STAMPS}/${YOSYS}.build ]; then
         cd ${YOSYS}
     fi
     log "Building ${YOSYS}"
-    make ${PARALLEL} ${MAKEFLAGS} ${YOSYSFLAGS} PREFIX=${PREFIX}
+    sed -i 's/CXX = clang/CXX = clang-17/g' Makefile
+    sed -i 's/LD = clang++/LD = clang++-17/g' Makefile
+    sed -i "s/ABCREV =.*/ABCREV = default/g" Makefile
+    sed -i 's/CFLAGS += -DABC_NAMESPACE/CFLAGS += -std=c++11 -DABC_NAMESPACE/g' abc/Makefile
+    make ${PARALLEL} ${MAKEFLAGS} ${YOSYSFLAGS} PREFIX=${PREFIX} CXXSTD=c++11
     install-parallel ${YOSYS} PREFIX=${PREFIX} install
     cd ..
     log "Cleaning up ${YOSYS}"
@@ -510,7 +519,10 @@ if [ ${GHDL_EN} != 0 ] && [ ! -e ${STAMPS}/${GHDL}.build ]; then
     unpack ${GHDL}
     cd build
     log "Configuring ${GHDL}"
-    ../${GHDL}/configure --with-llvm-config --prefix=${PREFIX}
+    sed -i '/       check_version 16.0 $llvm_version ||/a        check_version 17.0 $llvm_version ||' ../${GHDL}/configure
+    sed -i 's/.*Scalar\.h.*//g' ../${GHDL}/src/ortho/llvm6/llvm-cbindings.cpp
+    sed -i 's/.*Utils\.h.*//g' ../${GHDL}/src/ortho/llvm6/llvm-cbindings.cpp
+    ../${GHDL}/configure --with-llvm-config=llvm-config-17 --prefix=${PREFIX} CXX=clang++-17
     log "Building ${GHDL}"
     make ${PARALLEL} ${MAKEFLAGS}
     install ${GHDL} install
